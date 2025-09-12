@@ -11,6 +11,7 @@ require (
 	github.com/onsi/gomega v1.38.0
 	github.com/openshift/api v0.0.0-20250731015415-ed654edbd7c6
 	github.com/openshift/cluster-api-actuator-pkg v0.0.0-20250729202911-167220318f40
+	github.com/openshift/cluster-api-operator v0.0.0-00010101000000-000000000000
 	github.com/openshift/cluster-api-provider-baremetal v0.0.0-20250619124612-fb678fec5f7e
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
@@ -121,3 +122,4 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
+replace github.com/openshift/cluster-capi-operator => ../
