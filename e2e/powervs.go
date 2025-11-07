@@ -26,12 +26,13 @@ const (
 	powerVSMachineTemplateVersion = "infrastructure.cluster.x-k8s.io/v1beta2"
 )
 
-var _ = Describe("Cluster API IBMPowerVS MachineSet", Ordered, func() {
+var _ = Describe("[sig-cluster-lifecycle][Feature:ClusterAPI][platform:powervs][Disruptive] Cluster API IBMPowerVS MachineSet", Ordered, Label("Conformance"), Label("Serial"), func() {
 	var powerVSMachineTemplate *ibmpowervsv1.IBMPowerVSMachineTemplate
 	var machineSet *clusterv1.MachineSet
 	var mapiMachineSpec *mapiv1.PowerVSMachineProviderConfig
 
 	BeforeAll(func() {
+		InitCommonVariables()
 		if platform != configv1.PowerVSPlatformType {
 			Skip("Skipping PowerVS E2E tests")
 		}

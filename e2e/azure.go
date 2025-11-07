@@ -27,12 +27,13 @@ const (
 	capzManagerBootstrapCredentials = "capz-manager-bootstrap-credentials"
 )
 
-var _ = Describe("Cluster API Azure MachineSet", Ordered, func() {
+var _ = Describe("[sig-cluster-lifecycle][Feature:ClusterAPI][platform:azure][Disruptive] Cluster API Azure MachineSet", Ordered, Label("Conformance"), Label("Serial"), func() {
 	var azureMachineTemplate *azurev1.AzureMachineTemplate
 	var machineSet *clusterv1.MachineSet
 	var mapiMachineSpec *mapiv1.AzureMachineProviderSpec
 
 	BeforeAll(func() {
+		InitCommonVariables()
 		if platform != configv1.AzurePlatformType {
 			Skip("Skipping Azure E2E tests")
 		}
