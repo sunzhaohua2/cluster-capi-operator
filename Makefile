@@ -24,7 +24,7 @@ verify: fmt lint
 test: verify unit
 
 # Build binaries
-build: operator migration manifests-gen
+build: operator migration manifests-gen cluster-capi-operator-ext 
 
 .PHONY: manifests-gen
 manifests-gen:
@@ -38,6 +38,11 @@ operator:
 migration:
 	# building migration
 	go build -o bin/machine-api-migration cmd/machine-api-migration/main.go
+
+cluster-capi-operator-ext:
+	# building cluster-capi-operator-ext
+	cd openshift-tests-extension && GOWORK=off go build -mod=mod -o ../bin/cluster-capi-operator-ext ./cmd
+
 
 .PHONY: localtestenv
 localtestenv: .localtestenv
