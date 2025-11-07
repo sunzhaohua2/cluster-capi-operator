@@ -76,10 +76,14 @@ vet: lint
 .PHONY: lint
 lint:
 	$(call ensure-home, ${GOLANGCI_LINT} run ./...)
+	cd e2e && $(call ensure-home, ${GOLANGCI_LINT} run ./...)
+	cd openshift-tests-extension && $(call ensure-home, ${GOLANGCI_LINT} run ./...)
 
 .PHONY: lint-fix
 lint-fix:
 	$(call ensure-home, ${GOLANGCI_LINT} run ./... --fix)
+	cd e2e && $(call ensure-home, ${GOLANGCI_LINT} run ./... --fix)
+	cd openshift-tests-extension && $(call ensure-home, ${GOLANGCI_LINT} run ./... --fix)
 
 # Run go mod
 .PHONY: vendor
