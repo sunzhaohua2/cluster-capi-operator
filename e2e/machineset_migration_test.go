@@ -69,8 +69,8 @@ var _ = Describe("[sig-cluster-lifecycle][OCPFeatureGate:MachineAPIMigration] Ma
 			PIt("should reject creation of MAPI MachineSet with same name as existing CAPI MachineSet", func() {
 				By("Creating a same name MAPI MachineSet")
 				mapiMachineSet, err = createMAPIMachineSetWithAuthoritativeAPI(ctx, cl, 0, existingCAPIMSAuthorityMAPIName, machinev1beta1.MachineAuthorityMachineAPI, machinev1beta1.MachineAuthorityMachineAPI)
-				Expect(err).To(HaveOccurred(), "denied request to create MAPI MachineSet %s", mapiMachineSet.GetName())
-			})
+			Expect(err).To(MatchError(ContainSubstring("with spec.authoritativeAPI: MachineAPI because a Cluster API MachineSet with the same name already exists")), "Should deny creating MAPI MachineSet %s when CAPI MachineSet with same name exists", existingCAPIMSAuthorityMAPIName)
+ 				})
 		})
 
 		Context("with spec.authoritativeAPI: MAPI and when no existing CAPI MachineSet with same name", func() {
