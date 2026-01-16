@@ -10,6 +10,7 @@ import (
 	mapiv1beta1 "github.com/openshift/api/machine/v1beta1"
 	mapiframework "github.com/openshift/cluster-api-actuator-pkg/pkg/framework"
 	capiframework "github.com/openshift/cluster-capi-operator/e2e/framework"
+	"k8s.io/utils/ptr"
 	awsv1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
@@ -278,6 +279,286 @@ var _ = Describe("[sig-cluster-lifecycle][OCPFeatureGate:MachineAPIMigration] Ma
 				capiMachineSet = capiframework.GetMachineSet(cl, mapiMSAuthMAPIName, capiframework.CAPINamespace)
 				Expect(capiMachineSet).ToNot(BeNil(), "CAPI MachineSet should still exist after deleting non-authoritative MAPI MachineSet")
 				Expect(capiMachineSet.DeletionTimestamp.IsZero()).To(BeTrue(), "CAPI MachineSet should not be marked for deletion")
+			})
+		})
+	})
+
+	var _ = Describe("Field Conversion Tests", func() {
+		var capiMSFieldTestName = "capi-field-conversion-test"
+		var mapiMachineSet *mapiv1beta1.MachineSet
+		var capiMachineSet *clusterv1.MachineSet
+		var awsMachineTemplate *awsv1.AWSMachineTemplate
+
+		BeforeAll(func() {
+			mapiMachineSet = createMAPIMachineSetWithAuthoritativeAPI(ctx, cl, 0, capiMSFieldTestName, mapiv1beta1.MachineAuthorityClusterAPI, mapiv1beta1.MachineAuthorityClusterAPI)
+			capiMachineSet, awsMachineTemplate = waitForMAPIMachineSetMirrors(cl, capiMSFieldTestName)
+
+			DeferCleanup(func() {
+				By("Cleaning up 'Field Conversion Tests' resources")
+				cleanupMachineSetTestResources(
+					ctx,
+					cl,
+					[]*clusterv1.MachineSet{capiMachineSet},
+					[]*awsv1.AWSMachineTemplate{awsMachineTemplate},
+					[]*mapiv1beta1.MachineSet{mapiMachineSet},
+				)
+			})
+		})
+
+		Context("when CAPI MachineSet has all supported fields", func() {
+			It("should convert AdditionalTags successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.AdditionalTags = awsv1.Tags{
+						"Environment":                          "production",
+						"Number":                          "123",
+						"Special_Characters":                   "test@example.com:8080/path?query=value&foo=bar",
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) int {
+						return len(p.Tags)
+					},
+					Equal(3),
+					"Should have converted AdditionalTags to MAPI",
+				)
+			})
+
+			It("should convert PlacementGroupName successfully", func() {
+				testPlacementGroup := "prod-cluster-pg-partition-az1"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.PlacementGroupName = testPlacementGroup
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						return p.PlacementGroupName
+					},
+					Equal(testPlacementGroup),
+					"Should have converted PlacementGroupName to MAPI",
+				)
+			})
+
+			It("should convert PlacementGroupPartition successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.PlacementGroupPartition = int64(5)
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) *int32 {
+						return p.PlacementGroupPartition
+					},
+					HaveValue(Equal(int32(5))),
+					"Should have converted PlacementGroupPartition to MAPI",
+				)
+			})
+
+			It("should convert Tenancy successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.Tenancy = string(mapiv1beta1.DedicatedTenancy)
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) mapiv1beta1.InstanceTenancy {
+						return p.Placement.Tenancy
+					},
+					Equal(mapiv1beta1.DedicatedTenancy),
+					"Should have converted Tenancy to MAPI",
+				)
+			})
+
+			It("should convert NetworkInterfaceType successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.NetworkInterfaceType = awsv1.NetworkInterfaceTypeEFAWithENAInterface
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) mapiv1beta1.AWSNetworkInterfaceType {
+						return p.NetworkInterfaceType
+					},
+					Equal(mapiv1beta1.AWSEFANetworkInterfaceType),
+					"Should have converted NetworkInterfaceType to MAPI",
+				)
+			})
+
+			It("should convert SpotMarketOptions successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.SpotMarketOptions = &awsv1.SpotMarketOptions{
+						MaxPrice: ptr.To("0.10"),
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) *mapiv1beta1.SpotMarketOptions {
+						return p.SpotMarketOptions
+					},
+					Not(BeNil()),
+					"Should have converted SpotMarketOptions to MAPI",
+				)
+			})
+
+			It("should convert InstanceMetadataOptions successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.InstanceMetadataOptions = &awsv1.InstanceMetadataOptions{
+						HTTPTokens: awsv1.HTTPTokensStateRequired,
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) mapiv1beta1.MetadataServiceAuthentication {
+						return p.MetadataServiceOptions.Authentication
+					},
+					Equal(mapiv1beta1.MetadataServiceAuthenticationRequired),
+					"Should have converted InstanceMetadataOptions to MAPI",
+				)
+			})
+
+			It("should convert AdditionalSecurityGroups successfully", func() {
+				testSGID := "sg-fedcba9876543210"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.AdditionalSecurityGroups = []awsv1.AWSResourceReference{
+						{ID: ptr.To(testSGID)},
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) int {
+						return len(p.SecurityGroups)
+					},
+					Equal(1),
+					"Should have converted AdditionalSecurityGroups to MAPI",
+				)
+			})
+
+			It("should convert Subnet successfully", func() {
+				testSubnetID := "subnet-fedcba9876543210"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.Subnet = &awsv1.AWSResourceReference{
+						ID: ptr.To(testSubnetID),
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						if p.Subnet.ID == nil {
+							return ""
+						}
+						return *p.Subnet.ID
+					},
+					Equal(testSubnetID),
+					"Should have converted Subnet to MAPI",
+				)
+			})
+
+			It("should convert SSHKeyName successfully", func() {
+				testKeyName := "openshift-prod-us-east-1-ssh-key"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.SSHKeyName = ptr.To(testKeyName)
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						if p.KeyName == nil {
+							return ""
+						}
+						return *p.KeyName
+					},
+					Equal(testKeyName),
+					"Should have converted SSHKeyName to MAPI",
+				)
+			})
+
+			It("should convert AMI successfully", func() {
+				testAMIID := "ami-0a1b2c3d4e5f6g7h8"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.AMI = awsv1.AMIReference{
+						ID: ptr.To(testAMIID),
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						if p.AMI.ID == nil {
+							return ""
+						}
+						return *p.AMI.ID
+					},
+					Equal(testAMIID),
+					"Should have converted AMI to MAPI",
+				)
+			})
+
+			It("should convert IAMInstanceProfile successfully", func() {
+				testProfileName := "openshift-worker-node-instance-profile"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.IAMInstanceProfile = testProfileName
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						if p.IAMInstanceProfile == nil || p.IAMInstanceProfile.ID == nil {
+							return ""
+						}
+						return *p.IAMInstanceProfile.ID
+					},
+					Equal(testProfileName),
+					"Should have converted IAMInstanceProfile to MAPI",
+				)
+			})
+
+			It("should convert RootVolume successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.RootVolume = &awsv1.Volume{
+						Size:       int64(500),
+						Type:       awsv1.VolumeTypeGP3,
+						IOPS:       int64(16000),
+						Throughput: ptr.To(int64(1000)),
+						Encrypted:  ptr.To(true),
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) int {
+						return len(p.BlockDevices)
+					},
+					BeNumerically(">", 0),
+					"Should have converted RootVolume to MAPI",
+				)
+			})
+
+			It("should convert NonRootVolumes successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.NonRootVolumes = []awsv1.Volume{
+						{
+							DeviceName: "/dev/sdf",
+							Size:       int64(2000),
+							Type:       awsv1.VolumeTypeIO2,
+							IOPS:       int64(64000),
+							Encrypted:  ptr.To(true),
+						},
+					}
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) int {
+						return len(p.BlockDevices)
+					},
+					BeNumerically(">", 0),
+					"Should have converted NonRootVolumes to MAPI",
+				)
+			})
+
+			It("should convert CapacityReservationID successfully", func() {
+				testCapacityReservationID := "cr-fedcba9876543210"
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.CapacityReservationID = ptr.To(testCapacityReservationID)
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) string {
+						return p.CapacityReservationID
+					},
+					Equal(testCapacityReservationID),
+					"Should have converted CapacityReservationID to MAPI",
+				)
+			})
+
+			It("should convert MarketType successfully", func() {
+				awsMachineTemplate = updateCAPIMachineSetWithNewAWSMachineTemplate(ctx, cl, capiMachineSet, awsMachineTemplate, func(spec *awsv1.AWSMachineSpec) {
+					spec.MarketType = awsv1.MarketTypeSpot
+				})
+				expectMAPIMachineSetProviderSpecField(ctx, cl, capiMSFieldTestName,
+					func(p *mapiv1beta1.AWSMachineProviderConfig) mapiv1beta1.MarketType {
+						return p.MarketType
+					},
+					Equal(mapiv1beta1.MarketTypeSpot),
+					"Should have converted MarketType to MAPI",
+				)
 			})
 		})
 	})

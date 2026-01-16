@@ -253,6 +253,23 @@ func updateAWSMachineSetProviderSpec(ctx context.Context, cl client.Client, mapi
 	Expect(cl.Patch(ctx, mapiMachineSet, patch)).To(Succeed(), "failed to patch MachineSet provider spec")
 }
 
+// updateCAPIMachineSetWithNewAWSMachineTemplate creates a new AWSMachineTemplate with the specified spec changes,
+// updates the CAPI MachineSet to reference it, and cleans up the old template.
+func updateCAPIMachineSetWithNewAWSMachineTemplate(ctx context.Context, cl client.Client, capiMachineSet *clusterv1.MachineSet, oldTemplate *awsv1.AWSMachineTemplate, updateFunc func(*awsv1.AWSMachineSpec)) *awsv1.AWSMachineTemplate {
+	By(fmt.Sprintf("Creating new AWSMachineTemplate for MachineSet %s", capiMachineSet.Name))
+
+	// Create new template based on the old one
+	newTemplate := createAWSMachineTemplate(ctx, cl, oldTemplate.Name, updateFunc)
+
+	By(fmt.Sprintf("Updating CAPI MachineSet %s to reference new AWSMachineTemplate %s", capiMachineSet.Name, newTemplate.Name))
+	updateCAPIMachineSetInfraTemplate(capiMachineSet, newTemplate.Name)
+
+	By(fmt.Sprintf("Verifying old AWSMachineTemplate %s is deleted", oldTemplate.Name))
+	verifyResourceRemoved(oldTemplate)
+
+	return newTemplate
+}
+
 // waitForMAPIMachineSetMirrors waits for the corresponding CAPI MachineSet and AWSMachineTemplate mirrors to be created for a MAPI MachineSet.
 func waitForMAPIMachineSetMirrors(cl client.Client, machineSetNameMAPI string) (*clusterv1.MachineSet, *awsv1.AWSMachineTemplate) {
 	By(fmt.Sprintf("Verifying there is a CAPI MachineSet mirror and AWSMachineTemplate for MAPI MachineSet %s", machineSetNameMAPI))
@@ -364,4 +381,48 @@ func cleanupMachineSetTestResources(ctx context.Context, cl client.Client, capiM
 		By(fmt.Sprintf("Deleting awsMachineTemplate %s", template.Name))
 		capiframework.DeleteAWSMachineTemplates(ctx, cl, template)
 	}
+}
+
+// getAWSMachineTemplateField is a helper function to get a field value from the latest AWSMachineTemplate
+// associated with the given MachineSet name prefix.
+// It returns the result of the extractFunc applied to the template.
+func getAWSMachineTemplateField[T any](cl client.Client, machineSetNamePrefix string, extractFunc func(*awsv1.AWSMachineTemplate) T) func() T {
+	return func() T {
+		template, err := capiframework.GetAWSMachineTemplateByPrefix(cl, machineSetNamePrefix, capiframework.CAPINamespace)
+		if err != nil || template == nil {
+			var zero T
+			return zero
+		}
+		return extractFunc(template)
+	}
+}
+
+// expectAWSMachineTemplateField is a helper function that wraps the Eventually assertion
+// for checking a field value in the latest AWSMachineTemplate.
+func expectAWSMachineTemplateField[T any](cl client.Client, machineSetNamePrefix string, extractFunc func(*awsv1.AWSMachineTemplate) T, matcher types.GomegaMatcher, description string) {
+	Eventually(
+		getAWSMachineTemplateField(cl, machineSetNamePrefix, extractFunc),
+		capiframework.WaitMedium,
+		capiframework.RetryMedium,
+	).Should(matcher, description)
+}
+
+// getMAPIMachineSetProviderSpecField is a helper function to get a field value from the MAPI MachineSet's ProviderSpec.
+// It returns the result of the extractFunc applied to the provider spec.
+func getMAPIMachineSetProviderSpecField[T any](ctx context.Context, cl client.Client, machineSetName string, extractFunc func(*mapiv1beta1.AWSMachineProviderConfig) T) func() T {
+	return func() T {
+		mapiMachineSet, _ := mapiframework.GetMachineSet(ctx, cl, machineSetName)
+		providerSpec := getAWSProviderSpecFromMachineSet(mapiMachineSet)
+		return extractFunc(providerSpec)
+	}
+}
+
+// expectMAPIMachineSetProviderSpecField is a helper function that wraps the Eventually assertion
+// for checking a field value in the MAPI MachineSet's ProviderSpec.
+func expectMAPIMachineSetProviderSpecField[T any](ctx context.Context, cl client.Client, machineSetName string, extractFunc func(*mapiv1beta1.AWSMachineProviderConfig) T, matcher types.GomegaMatcher, description string) {
+	Eventually(
+		getMAPIMachineSetProviderSpecField(ctx, cl, machineSetName, extractFunc),
+		capiframework.WaitMedium,
+		capiframework.RetryMedium,
+	).Should(matcher, description)
 }
