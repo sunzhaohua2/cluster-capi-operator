@@ -82,13 +82,15 @@ func createMAPIMachineSetWithAuthoritativeAPI(ctx context.Context, cl client.Cli
 	return mapiMachineSet
 }
 
-// switchMachineSetAuthoritativeAPI updates the authoritativeAPI fields of a MAPI MachineSet and its template.
-func switchMachineSetAuthoritativeAPI(mapiMachineSet *mapiv1beta1.MachineSet, machineSetAuthority mapiv1beta1.MachineAuthority, machineAuthority mapiv1beta1.MachineAuthority) {
-	By(fmt.Sprintf("Switching MachineSet %s AuthoritativeAPI to spec.authoritativeAPI: %s, spec.template.spec.authoritativeAPI: %s", mapiMachineSet.Name, machineSetAuthority, machineAuthority))
+// switchMachineSetAuthoritativeAPI updates the authoritativeAPI field of a MAPI MachineSet.
+func switchMachineSetAuthoritativeAPI(mapiMachineSet *mapiv1beta1.MachineSet, machineSetAuthority mapiv1beta1.MachineAuthority) {
+	By(fmt.Sprintf("Switching MachineSet %s spec.authoritativeAPI to %s", mapiMachineSet.Name, machineSetAuthority))
 	Eventually(komega.Update(mapiMachineSet, func() {
 		mapiMachineSet.Spec.AuthoritativeAPI = machineSetAuthority
-		mapiMachineSet.Spec.Template.Spec.AuthoritativeAPI = machineAuthority
-	}), capiframework.WaitShort, capiframework.RetryShort).Should(Succeed(), "Failed to update MachineSet %s AuthoritativeAPI", mapiMachineSet.Name)
+		// Not modifying spec.template.spec.authoritativeAPI because:
+		// 1. When spec.authoritativeAPI = ClusterAPI, template.spec.authoritativeAPI is ignored
+		// 2. Modifying it would be rejected by VAP when status.authoritativeAPI is ClusterAPI
+	}), capiframework.WaitShort, capiframework.RetryShort).Should(Succeed(), "Failed to update MachineSet %s spec.authoritativeAPI", mapiMachineSet.Name)
 }
 
 // verifyMachineSetAuthoritative verifies that a MAPI MachineSet's status.authoritativeAPI matches the expected authority.
